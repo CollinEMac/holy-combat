@@ -29,7 +29,7 @@ fn setup_scene(
 ) {
     // World where we move the player
     commands.spawn(MaterialMesh2dBundle {
-        mesh: Mesh2dHandle(meshes.add(Rectangle::new(1000., 700.))),
+        mesh: Mesh2dHandle(meshes.add(Rectangle::new(2000., 1400.))),
         material: materials.add(Color::srgb(0.2, 0.2, 0.3)),
         ..default()
     });
@@ -89,7 +89,8 @@ fn update_camera(
     };
 
     let Vec3 { x, y, .. } = player.translation;
-    let direction = Vec3::new(x, y, camera.translation.z);
+    // Add 150 offset the camera with the player a little
+    let direction = Vec3::new(x, y + 150., camera.translation.z);
 
     // Applies a smooth effect to camera movement using interpolation between
     // the camera position and the player position on the x and y axes.
