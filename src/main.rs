@@ -8,11 +8,19 @@ const PLAYER_SPEED: f32 = 200.;
 /// Camera lerp factor.
 const CAM_LERP_FACTOR: f32 = 2.;
 
+/// Collision radius for both player and opponent
+const COLLISION_RADIUS: f32 = 25.;
+
 #[derive(Component)]
 struct Player;
 
 #[derive(Component)]
 struct Opponent;
+
+#[derive(Component)]
+struct Collidable {
+    radius: f32,
+}
 
 fn main() {
     App::new()
@@ -37,9 +45,10 @@ fn setup_scene(
     // Player
     commands.spawn((
         Player,
+        Collidable { radius: COLLISION_RADIUS },
         MaterialMesh2dBundle {
-            mesh: meshes.add(Circle::new(25.)).into(),
-            material: materials.add(Color::srgb(0.0, 100.0, 0.0)),
+            mesh: meshes.add(Circle::new(COLLISION_RADIUS)).into(),
+            material: materials.add(Color::srgb(0.0, 1.0, 0.0)),
             transform: Transform {
                 translation: vec3(0., 0., 2.),
                 ..default()
@@ -51,9 +60,10 @@ fn setup_scene(
     // Opponent
     commands.spawn((
         Opponent,
+        Collidable { radius: COLLISION_RADIUS },
         MaterialMesh2dBundle {
-            mesh: meshes.add(Circle::new(25.)).into(),
-            material: materials.add(Color::srgb(100.0, 0.0, 0.0)),
+            mesh: meshes.add(Circle::new(COLLISION_RADIUS)).into(),
+            material: materials.add(Color::srgb(1.0, 0.0, 0.0)),
             transform: Transform {
                 translation: vec3(150., 0., 1.),
                 ..default()
@@ -92,23 +102,23 @@ fn update_camera(
     // Add 150 offset the camera with the player a little
     let direction = Vec3::new(x, y + 150., camera.translation.z);
 
-    // Applies a smooth effect to camera movement using interpolation between
-    // the camera position and the player position on the x and y axes.
-    // Here we use the in-game time, to get the elapsed time (in seconds)
-    // since the previous update. This avoids jittery movement when tracking
-    // the player.
     camera.translation = camera
         .translation
         .lerp(direction, time.delta_seconds() * CAM_LERP_FACTOR);
 }
 
-/// Update the player position with keyboard inputs.
+/// Update the player position with keyboard inputs, considering collisions.
 fn move_player(
-    mut player: Query<&mut Transform, With<Player>>,
+    mut player: Query<(&mut Transform, &Collidable), With<Player>>,
+    opponent: Query<(&Transform, &Collidable), (With<Opponent>, Without<Player>)>,
     time: Res<Time>,
     kb_input: Res<ButtonInput<KeyCode>>,
 ) {
-    let Ok(mut player) = player.get_single_mut() else {
+    let Ok((mut player_transform, player_collidable)) = player.get_single_mut() else {
+        return;
+    };
+
+    let Ok((opponent_transform, opponent_collidable)) = opponent.get_single() else {
         return;
     };
 
@@ -122,9 +132,22 @@ fn move_player(
         direction.x += 1.;
     }
 
-    // Progressively update the player's position over time. Normalize the
-    // direction vector to prevent it from exceeding a magnitude of 1 when
-    // moving diagonally.
     let move_delta = direction.normalize_or_zero() * PLAYER_SPEED * time.delta_seconds();
-    player.translation += move_delta.extend(0.);
+    let new_position = player_transform.translation + move_delta.extend(0.);
+
+    // Check if the new position would cause a collision
+    let distance = new_position.distance(opponent_transform.translation);
+    let min_distance = player_collidable.radius + opponent_collidable.radius;
+
+    if distance >= min_distance {
+        // No collision, apply the movement
+        player_transform.translation = new_position;
+    } else {
+        // Collision detected, move as close as possible without overlapping
+        let direction_to_opponent = (opponent_transform.translation - player_transform.translation).normalize();
+        let max_movement = (distance - min_distance).max(0.0);
+        let safe_move = move_delta.extend(0.).reject_from(direction_to_opponent) * (max_movement / move_delta.length());
+        player_transform.translation += safe_move;
+    }
 }
+
